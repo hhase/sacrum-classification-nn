@@ -1,0 +1,32 @@
+---
+version: 1
+
+kind: experiment
+
+framework: pytorch
+
+tags: [classification]
+
+build:
+  image: pytorch/pytorch:1.4-cuda10.1-cudnn7-runtime
+  build_steps:
+    - pip install -r requirements.txt
+    - pip install tensorboardX
+
+environment:
+  resources:
+    cpu:
+      requests: 3
+      limits: 8
+    memory:
+      requests: 4024
+      limits: 16392
+    gpu:
+      requests: 1
+      limits: 1
+
+declarations:
+  run_name:           "CNN_sacrum_classification"
+
+run:
+  cmd: python -u pytorch_cnn.py
