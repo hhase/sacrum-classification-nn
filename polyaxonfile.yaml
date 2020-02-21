@@ -17,7 +17,7 @@ environment:
   resources:
     cpu:
       requests: 3
-      limits: 8
+      limits: 4
     memory:
       requests: 4024
       limits: 16392
