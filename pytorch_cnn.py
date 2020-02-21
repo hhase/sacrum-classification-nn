@@ -5,9 +5,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import PIL.Image as Image
 
+from ResNet import resnet18
 import matplotlib.pyplot as plt
 from torchvision import datasets
 import torchvision.transforms as transforms
+from torch.utils.tensorboard import SummaryWriter
+from torch.nn.functional import nll_loss, log_softmax
 from torch.utils.data.sampler import WeightedRandomSampler
 from polyaxon_client.tracking import Experiment, get_data_paths, get_outputs_path
 
@@ -27,7 +30,7 @@ if cluster:
     train_data_path = data_paths['data1'] + "/HHase_Robotic_RL/Sacrum_Classification/testing/"
     val_data_path = data_paths['data1'] + "/HHase_Robotic_RL/Sacrum_Classification/validation/"
     output_path = get_outputs_path()
-    BATCH_SIZE = 128
+    BATCH_SIZE = 64
 else:
     train_data_path = "./Data/training/"
     val_data_path = "./Data/validation/"
@@ -45,7 +48,7 @@ def pil_loader(path):
 # LOAD TRAINING DATA
 
 transform = transforms.Compose([
-    transforms.RandomResizedCrop((IMG_WIDTH, IMG_HEIGHT), scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333), interpolation=2),
+    #transforms.RandomResizedCrop((IMG_WIDTH, IMG_HEIGHT), scale=(0.08, 1.0), ratio=(0.75, 1.3333333333333333), interpolation=2),
     transforms.RandomHorizontalFlip(),
     transforms.RandomRotation(5),
     transforms.Grayscale(num_output_channels=1),
@@ -118,40 +121,48 @@ class ConvNet(nn.Module):
         out = self.fc2(out)
         out = self.fc3(out)
         return out
+#model = ConvNet()
 
-model = ConvNet()
+model = resnet18(pretrained=False, progress=True, num_classes=2)
 print(model)
 
 if train_on_gpu:
     model.cuda()
 
-criterion = torch.nn.BCEWithLogitsLoss()
-optimizer = torch.optim.SGD(model.parameters(), lr = 0.003, momentum= 0.9)
+#criterion = torch.nn.BCEWithLogitsLoss()
+criterion = torch.nn.CrossEntropyLoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 
 n_epochs = 50  # you may increase this number to train a final model
 valid_loss_min = np.Inf  # track change in validation loss
+
+writer = SummaryWriter(log_dir=output_path)
 
 for epoch in range(1, n_epochs + 1):
 
     # keep track of training and validation loss
     train_loss = 0.0
+    train_acc = 0.0
     valid_loss = 0.0
+    valid_acc = 0.0
 
     ###################
     # train the model #
     ###################
     model.train()
-    counter = 0
+    train_accuracy = 0
     for data, target in train_data_loader:
         # move tensors to GPU if CUDA is available
         if train_on_gpu:
             data, target = data.cuda(), target.cuda()
         optimizer.zero_grad()
         output = model(data)
-        target = target.unsqueeze(1).type_as(output)
         loss = criterion(output, target)
+        print(loss)
         loss.backward()
         optimizer.step()
+        pred = torch.max(output.data, 1)
+        train_acc += torch.mean((pred.indices == target.data).float()).item() * data.size(0)
         train_loss += loss.item() * data.size(0)
 
     ######################
@@ -162,17 +173,28 @@ for epoch in range(1, n_epochs + 1):
         if train_on_gpu:
             data, target = data.cuda(), target.cuda()
         output = model(data)
-        target = target.unsqueeze(1).type_as(output)
+        #target = target.unsqueeze(1).type_as(output)
         loss = criterion(output, target)
+        pred = torch.max(output.data, 1)
+        valid_acc += torch.mean((pred.indices == target.data).float()).item() * data.size(0)
         valid_loss += loss.item() * data.size(0)
 
     # calculate average losses
     train_loss = train_loss / len(train_data_loader.dataset)
+    train_acc = train_acc / len(train_data_loader.dataset)
     valid_loss = valid_loss / len(validation_data_loader.dataset)
+    valid_acc = valid_acc / len(validation_data_loader.dataset)
+
+    # log training/validation statistics
+    writer.add_scalar('Loss/train', train_loss, epoch)
+    writer.add_scalar('Loss/validation', valid_loss, epoch)
+    writer.add_scalar('Accuracy/train', train_acc, epoch)
+    writer.add_scalar('Accuracy/validation', valid_acc, epoch)
+    writer.add_scalar('ADAM_params/learning_rate', optimizer.state_dict().get('param_groups')[0].get('lr'), epoch)
 
     # print training/validation statistics
-    print('Epoch: {} \tTraining Loss: {:.6f} \tValidation Loss: {:.6f}'.format(
-        epoch, train_loss, valid_loss))
+    print('Epoch: {} \tTraining Loss: {:.6f} \tValidation Loss: {:.6f}'.format(epoch, train_loss, valid_loss))
+    print('Epoch: {} \tTraining Accuracy: {:.6f} \tValidation Accuracy: {:.6f}'.format(epoch, train_acc, valid_acc))
 
     # save model if validation loss has decreased
     if valid_loss <= valid_loss_min:

@@ -8,7 +8,7 @@ framework: pytorch
 tags: [classification]
 
 build:
-  image: pytorch/pytorch:1.4-cuda10.1-cudnn7-runtime
+  image: pytorch/pytorch:1.1.0-cuda10.0-cudnn7.5-runtime #pytorch/pytorch:1.4-cuda10.1-cudnn7-runtime
   build_steps:
     - pip install -r requirements.txt
     - pip install tensorboardX
@@ -29,4 +29,6 @@ declarations:
   run_name:           "CNN_sacrum_classification"
 
 run:
-  cmd: python -u pytorch_cnn.py
+  cmd: pip install future &&
+    pip install tensorboard &&
+    python -u pytorch_cnn.py
